@@ -1,0 +1,36 @@
+---
+title: 'Bowsher Rx'
+subtitle: '`r Sys.Date()`'
+output: 
+  powerpoint_presentation:
+    reference_doc: 'template2.pptx'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = FALSE,
+	message = FALSE,
+	warning = FALSE
+)
+```
+
+## Bowsher Rx
+
+## `r drug` Summary
+
+There were `r nrow(event_data)` adverse events for `r drug`.
+
+## All Events
+
+```{r fig.height=4, fig.width=6, fig.cap="Year to Date"}
+events
+```
+
+
+## Events by Gender
+
+```{r fig.height=6, fig.width=6}
+gender
+```
+
+

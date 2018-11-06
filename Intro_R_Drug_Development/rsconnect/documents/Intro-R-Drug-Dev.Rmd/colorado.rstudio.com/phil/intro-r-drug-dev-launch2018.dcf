@@ -1,0 +1,12 @@
+name: intro-r-drug-dev-launch2018
+title: Intro-R-Drug-Dev-Launch2018
+username: phil
+account: phil
+server: colorado.rstudio.com
+hostUrl: http://colorado.rstudio.com:3939/__api__
+appId: 1615
+bundleId: 21426
+url: http://colorado.rstudio.com:3939/content/1615/
+when: 1541519857.98717
+asMultiple: FALSE
+asStatic: FALSE

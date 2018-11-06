@@ -1,0 +1,189 @@
+---
+title: "Adverse Events"
+params:
+  drug: Parlodel
+resource_files:
+- .Renviron
+- .httr-oauth
+output:
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    theme: readable
+    vertical_layout: fill
+---
+
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(stringr)
+library(bigrquery)
+library(openfda)
+library(dplyr)
+library(dbplyr)
+library(DBI)
+library(blastula)
+library(ggplot2)
+library(ggthemes)
+
+con <- dbConnect(
+  bigrquery::bigquery(),
+  project = 'bigquery-public-data',
+  dataset = 'nlm_rxnorm',
+  billing = bq_test_project()
+)
+pathways <- tbl(con, 'rxn_all_pathways_01_18')
+
+# Get all brand name drugs from BigQuery
+all_names <- pathways %>%
+  filter(TARGET_TTY == 'BN') %>%
+  select(TARGET_NAME) %>%
+  group_by(TARGET_NAME) %>%
+  summarise() %>%
+  collect()
+
+get_adverse <- function(gender, brand_name, age) {
+  fda_query("/drug/event.json") %>%
+    fda_filter("patient.drug.openfda.brand_name", brand_name) %>% 
+    fda_filter("patient.patientsex", gender) %>% 
+    fda_filter("patient.patientonsetage", age) %>% 
+    fda_count("patient.reaction.reactionmeddrapt.exact") %>% 
+    fda_limit(10) %>% 
+    fda_exec()
+}
+
+create_age <- function(min, max){#
+  sprintf('[%d+TO+%d]', min, max)
+}
+```
+
+```{r}
+
+age <- create_age(20,65)
+
+jnk <- capture.output(male <- get_adverse("1", params$drug, age))
+if (!is.null(male)) {
+  male$gender <- 'male'
+}
+
+jnk <- capture.output(female <- get_adverse("1", params$drug, age))
+if (!is.null(female)) {
+  female$gender <- 'female'
+}
+
+adverse <- rbind(male, female)
+
+ingredients <- pathways %>%
+  filter(TARGET_NAME == params$drug, TARGET_TTY == 'BN', SOURCE_TTY %in% c('IN', 'SY')) %>%
+  select(SOURCE_NAME, SOURCE_TTY) %>%
+  collect()
+
+
+```
+
+
+Column 
+-----------------------------------------------------------------------
+
+### All Events
+
+```{r}
+events <- adverse %>% 
+  group_by(term) %>% 
+  summarise(count = sum(count)) %>% 
+  ggplot() +
+    geom_bar(aes(reorder(term,count), count), stat = 'identity') +
+    coord_flip() +
+    labs(
+      title = params$drug,
+      x = NULL,
+      y = NULL
+    ) +
+    theme_minimal()
+events
+```
+
+### Events by Gender
+
+```{r}
+gender <- ggplot(adverse) +
+    geom_bar(aes(reorder(term,count), count, fill = gender), stat = 'identity') +
+    facet_wrap(~gender)+
+    coord_flip() +
+    labs(
+      title = params$drug,
+      x = NULL,
+      y = NULL
+    ) +
+    theme_minimal() + 
+    guides(fill = FALSE) + 
+    scale_fill_manual(values = c("#d54a30","#4c83b6"))
+gender
+```
+
+
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+
+### Age Range
+
+```{r}
+age_label <- str_replace_all(age, fixed("+"), " ") %>% 
+    str_replace(fixed("["), "") %>% 
+    str_replace(fixed("]"), "") %>% 
+    str_replace(fixed("TO"), "-")     
+
+valueBox(age_label, icon = 'glyphicon-user')
+```
+
+
+### {.no-title}
+
+```{r}
+
+  DT::datatable(ingredients %>% select(`Active Ingredients` = SOURCE_NAME),
+                options = list(dom = "t"))
+
+```
+
+```{r ppt, message=FALSE}
+callr::r_copycat(
+  function(events, gender, event_data, drug){
+    rmarkdown::render('template/template.Rmd',
+                      output_file = 'events.pptx',
+                      quiet = FALSE)
+  },
+  list(events, gender, adverse, params$drug)
+)
+
+file.copy('template/events.pptx', './events.pptx')
+subject <- sprintf('%s Adverse Event Report ', params$drug)
+
+email <- blastula::compose_email(
+  body = "
+  Hi Team,
+
+  Attached is your PPT summary of the adverse events for {params$drug}. The main adverse events are highlighted below.Data as of {Sys.Date()}.
+
+
+  {add_ggplot(events, width = 6, height = 6)}
+
+
+  Thanks,
+
+  Phil
+
+
+  Copyright 2018 Bowsher Rx
+  "
+)
+```
+
+```{r email, message=FALSE}
+rmarkdown::output_metadata$set(
+  rsc_email_subject = subject,
+  rsc_email_body_html = email$html_str,
+  rsc_email_images = email$images,
+  rsc_email_attachments = list("events.pptx")
+)
+```
